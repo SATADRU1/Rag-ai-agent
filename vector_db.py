@@ -24,18 +24,18 @@ class QdrantStorage:
             limit=top_k,
         )
         context = []
-        source = set()
+        sources = set()
 
         for r in results:
-            payload = getattr(r, "payload", none) or {}
+            payload = getattr(r, "payload", None) or {}
             text = payload.get("text", "")
-            source = payload.get("source", "")
+            _source = payload.get("source", "")
             if text:
                 context.append(text)
-                if source:
-                    source.add(source)
+                if _source:
+                    sources.add(_source)
         
-        return{"context": "\n\n".join(context), "sources": list(source)}
+        return {"context": "\n\n".join(context), "sources": list(sources)}
 
 
         
