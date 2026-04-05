@@ -17,3 +17,9 @@ a simple production ready retrieval augment generation ai project based on ai/ml
    ```bash
    npx inngest-cli@latest dev -u http://127.0.0.1:8000/api/inngest --no-discovery
    ```
+4. For docker implementation:
+   ```bash
+    docker run -d --name qdrantRagDb -p 6333:6333 -v "${PWD}/qdrant_storage:/qdrant/storage" qdrant/qdrant  
+   ```
+5. for api:
+   https://platform.openai.com/API-KEYS
