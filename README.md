@@ -44,6 +44,8 @@ OPENAI_API_KEY="sk-your-openai-api-key"
 ```
 *(You can obtain this from [platform.openai.com/API-KEYS](https://platform.openai.com/API-KEYS))*
 
+##### as openai is not free so i used groq for the llm and sentence transformer for the embeddings
+
 ### 2. Install Dependencies
 ```bash
 uv pip install -r requirements.txt
@@ -103,3 +105,6 @@ The frontend application facing the user.
 * Evaluates file uploads and saves them into a temporary `/uploads` directory.
 * Uses polling to continuously check the Inngest Dev Server API waiting for the AI task to finish generating its response.
 * Renders the final textual answer alongside the relevant context chunks.
+
+
+

@@ -17,16 +17,16 @@ class QdrantStorage:
         self.client.upsert(self.collection, points=points)
 
     def search(self, query_vector, top_k=5):
-        results = self.client.search(
+        response = self.client.query_points(
             collection_name=self.collection,
-            query_vector=query_vector,
+            query=query_vector,
             with_payload=True,
             limit=top_k,
         )
         context = []
         sources = set()
 
-        for r in results:
+        for r in response.points:
             payload = getattr(r, "payload", None) or {}
             text = payload.get("text", "")
             _source = payload.get("source", "")
@@ -35,4 +35,4 @@ class QdrantStorage:
                 if _source:
                     sources.add(_source)
         
-        return {"context": "\n\n".join(context), "sources": list(sources)}
+        return {"context": context, "sources": list(sources)}

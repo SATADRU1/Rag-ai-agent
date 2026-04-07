@@ -6,12 +6,14 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.135.3",
+    "groq>=1.1.2",
     "inngest>=0.5.18",
     "llama-index-core>=0.14.19",
     "llama-index-readers-file>=0.6.0",
     "openai>=2.30.0",
     "python-dotenv>=1.2.2",
     "qdrant-client>=1.17.1",
+    "sentence-transformers>=5.3.0",
     "streamlit>=1.56.0",
     "uvicorn>=0.42.0",
 ]

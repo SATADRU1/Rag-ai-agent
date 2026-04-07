@@ -2,11 +2,10 @@ import logging
 from fastapi import FastAPI
 import inngest
 import inngest.fast_api
-from inngest.experimental import ai 
 from dotenv import load_dotenv
 import os
 import uuid
-import datetime
+from groq import Groq
 from Data_loader import load_and_chunk_pdf, embed_texts
 from vector_db import QdrantStorage
 from custom_type import RAGChunkAndSrc, RAGUpsertResult, RAGSearchResult, RAGQueryResult
@@ -39,10 +38,13 @@ async def rag_ingest_pdf(ctx: inngest.Context):
     def _upsert(chunks_and_src: dict) -> dict:
         chunks = chunks_and_src["chunks"]
         source_id = chunks_and_src["source_id"]
-        vecs = embed_texts(chunks)
+        try:
+            vecs = embed_texts(chunks)
+        except Exception as e:
+            raise inngest.NonRetriableError(f"Embedding Error: {e}")
         ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, f"{source_id}:{i}")) for i in range(len(vecs))]
         payloads = [{"text": chunks[i], "source": source_id} for i in range(len(chunks))]
-        QdrantStorage().upsert(ids,vecs,payloads)
+        QdrantStorage(dim=384).upsert(ids, vecs, payloads)
         return RAGUpsertResult(ingested=len(chunks)).model_dump()
 
 
@@ -62,47 +64,40 @@ async def rag_ingest_pdf(ctx: inngest.Context):
     trigger=inngest.TriggerEvent(event="rag/query_pdf_ai")
 )
 async def rag_query_pdf_ai(ctx: inngest.Context):
-    def _search(question:str,top_k:int=5) -> RAGSearchResult:
-        query_vec = embed_texts([question])[0]
-        store = QdrantStorage()
-        found = store.search(query_vec,top_k)
-        return RAGSearchResult(context=found["context"],sources=found["sources"]).model_dump()
-    
+    def _search(question: str, top_k: int = 5) -> dict:
+        try:
+            query_vec = embed_texts([question])[0]
+        except Exception as e:
+            raise inngest.NonRetriableError(f"Embedding Error: {e}")
+        store = QdrantStorage(dim=384)
+        found = store.search(query_vec, top_k)
+        return RAGSearchResult(context=found["context"], sources=found["sources"]).model_dump()
+
+    def _llm_answer(context: list, question: str) -> str:
+        groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        context_block = "\n\n".join(f"- {c}" for c in context if c)
+        user_content = (
+            "Use the following context to answer the question.\n\n"
+            f"{context_block}\n\n"
+            f"Question: {question}\n\n"
+            "Answer:"
+        )
+        completion = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant. Answer only from the provided context."},
+                {"role": "user", "content": user_content},
+            ],
+            max_tokens=1024,
+            temperature=0.2,
+        )
+        return completion.choices[0].message.content.strip()
 
     question = ctx.event.data["question"]
-    top_k = ctx.event.data.get("top_k",5)
-    found = await ctx.step.run("embed_and_search", lambda: _search(question,top_k), output_type=RAGSearchResult)
-    context_block = "\n\n".join(f"- {c}" for c in found.context)
-    user_context = (
-        "use the following context to answer the question \n\n"
-        f"{context_block}\n\n"
-        f"Question: {question}\n\n"
-        "Answer:"
-    )
-
-    adapter = ai.OpenAI.Adapter(
-        auth_key=os.getenv("OPENAI_API_KEY"),      
-        model="gpt-4o-mini"
-    )
-    
-
-
-    res = await ctx.step.ai.infer(
-        "llm answer the question based on the context",
-        adapter=adapter,
-        body={
-            "max_tokens": 1024,
-            "temperature": 0.2,
-            "messages":[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": user_context},
-            ]
-        }
-    ) 
-
-
-    answer = res["choices"][0]["message"]["content"].strip()
-    return {"answer":answer,"sources":found.sources, "num_context":len(found.context)}
+    top_k = ctx.event.data.get("top_k", 5)
+    found = await ctx.step.run("embed_and_search", lambda: _search(question, top_k))
+    answer = await ctx.step.run("llm_answer", lambda: _llm_answer(found["context"], question))
+    return {"answer": answer, "sources": found["sources"], "num_context": len(found["context"])}
 
 app = FastAPI()
 
