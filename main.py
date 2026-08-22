@@ -83,7 +83,7 @@ async def rag_query_pdf_ai(ctx: inngest.Context):
             "Answer:"
         )
         completion = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="groq/compound-mini",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant. Answer only from the provided context."},
                 {"role": "user", "content": user_content},
