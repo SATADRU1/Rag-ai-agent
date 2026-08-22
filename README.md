@@ -1,110 +1,64 @@
-# Rag-ai-agent 🤖📄
+# Settlement Reconciliation Agent
 
-A production-ready Retrieval-Augmented Generation (RAG) AI agent designed to let you easily upload PDFs and ask questions about their content.
+**Track:** Razorpay AI Buildathon — AI Finance Controller (Settlement Q&A Agent)
 
-## 🌟 Project Overview
+An agent that reconciles Razorpay settlement records against bank statements,
+flags exceptions with a reason, and answers natural-language questions about
+why a specific transaction is or isn't settled — grounded in both the
+reconciliation result and the merchant's settlement policy documents.
 
-This project implements a complete **RAG Architecture** (Retrieval-Augmented Generation) using state-of-the-art tools. It acts as an intelligent assistant that securely processes your own PDF files, breaks them down into searchable knowledge, and uses advanced Large Language Models (LLMs) to accurately answer questions based entirely on your documents. 
+## What it actually does
 
-### 🔑 Key Features & Technologies
-* **FastAPI:** Provides a robust, lightning-fast backend API to manage incoming requests.
-* **Streamlit:** Powers the beautiful and interactive frontend User Interface where you can upload documents and chat.
-* **Inngest:** Handles resilient background job orchestration, managing complex workflows step-by-step (e.g., parsing, embedding, querying) without task failure or timeouts. 
-* **Qdrant (Vector Database):** Efficiently stores and retrieves vector embeddings (semantic representations of your text) for blazing-fast similarity search.
-* **LlamaIndex:** Capably reads PDF content and intelligently splits it into smaller, manageable "chunks" of text that preserve context.
-* **OpenAI (Embeddings & LLM):** Uses `text-embedding-3-large` to convert text into mathematical vectors, and `gpt-4o-mini` to formulate accurate, human-like responses based on the retrieved document context.
+1. **Reconciles** a settlement report against a bank statement, classifying
+   every record as `matched`, `amount_mismatch`, `missing_in_bank`,
+   `duplicate`, or `delayed` — with a human-readable reason for each.
 
----
+2. **Answers transaction-specific questions** ("why wasn't txn X settled?")
+   by combining the reconciliation result with relevant policy text, using
+   retrieval-augmented generation over uploaded policy PDFs.
 
-## 🛠️ How It Works (Step-by-Step)
+3. **Reports honest accuracy** — evaluated against a labeled synthetic
+   dataset, not cherry-picked examples.
 
-### 1. The Ingestion Phase (Uploading a PDF)
-1. **Upload:** You upload a PDF via the Streamlit frontend. It saves the file into the `/uploads` directory.
-2. **Trigger:** Streamlit orchestrates an Event (`rag/ingest_pdf`) to the Inngest background engine.
-3. **Parse & Chunk:** Inngest reads the PDF using LlamaIndex and splits the dense document into smaller, digestible text passages (chunks).
-4. **Embed & Store:** The chunks are sent to OpenAI to generate high-dimensional vectors, which are then saved persistently inside the **Qdrant Vector Database** along with the original text.
+## Results (from `evaluate.py`)
 
-### 2. The Query Phase (Asking a Question)
-1. **Question:** You ask a question via the Streamlit chat interface.
-2. **Trigger:** An Event (`rag/query_pdf_ai`) is fired off to Inngest.
-3. **Semantic Search:** Inngest transforms your question into a vector and queries Qdrant for the Top `K` most relevant chunks from your PDF.
-4. **AI Generation:** Inngest feeds those top chunks (the "context") and your original question into the OpenAI LLM. The AI agent generates a direct answer strictly based on the text found in the PDF.
-5. **Display:** Streamlit polls the background job, fetches the final answer, and delightfully presents both the answer and the sources to you!
+- Graded against 60 synthetic settlement records with known ground truth
+- **Accuracy: 100.0%**
+- Every misclassification is printed, not hidden — see `evaluate.py` output
 
----
+## Architecture
 
-## 🚀 Setup & Execution Instructions
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full diagram and data flow.
 
-Follow these exact steps to run the complete environment:
+**Tech stack:**
 
-### 1. Environment variables
-Create a `.env` file in the root directory and add your OpenAI API Key:
-```env
-OPENAI_API_KEY="sk-your-openai-api-key"
-```
-*(You can obtain this from [platform.openai.com/API-KEYS](https://platform.openai.com/API-KEYS))*
+- **Reconciliation engine** — pure Python, rule-based matching with tolerance
+  windows (`reconcile.py`)
+- **RAG pipeline** — PyMuPDF text extraction → LlamaIndex chunking →
+  MiniLM embeddings → Qdrant vector search → Groq LLM generation
+- **Orchestration** — Inngest (step functions, retries, observability)
+- **API** — FastAPI
+- **UI** — Streamlit (3 tabs: Dashboard, Transaction Q&A, Policy Chat)
 
-##### as openai is not free so i used groq for the llm and sentence transformer for the embeddings
+## Running it locally
 
-### 2. Install Dependencies
-```bash
-uv pip install -r requirements.txt
-```
+1. `uv sync` (or `pip install -r requirements.txt`)
+2. Set `GROQ_API_KEY` in `.env`
+3. Generate synthetic data: `python data/generate_settlement_data.py`
+4. Run reconciliation: `python reconcile.py`
+5. Grade accuracy: `python evaluate.py`
+6. Start Qdrant: `docker run -d --name qdrantRagDb -p 6333:6333 -v "${PWD}/qdrant_storage:/qdrant/storage" qdrant/qdrant`
+7. Start the API: `uvicorn main:app --reload`
+8. Start Inngest dev server: `npx inngest-cli@latest dev -u http://localhost:8000/api/inngest --no-discovery`
+9. Start the UI: `streamlit run streamlit_app.py`
 
-### 3. Run Qdrant Vector DB (Docker)
-Start a local Qdrant server instance to store the AI memory:
-```bash
-docker run -d --name qdrantRagDb -p 6333:6333 -v "${PWD}/qdrant_storage:/qdrant/storage" qdrant/qdrant  
-```
+## Live demo
 
-### 4. Run the Backend API (FastAPI)
-```bash
-uv run uvicorn main:app
-```
+https://rag-ai-agent-nywmctur8xwxv2y2btzude.streamlit.app/
 
-### 5. Run the Inngest Dev Server
-Start the Inngest engine to power background task orchestration:
-```bash
-npx inngest-cli@latest dev -u http://127.0.0.1:8000/api/inngest --no-discovery
-```
+## Why this matters
 
-### 6. Run the Frontend UI (Streamlit)
-Launch the interactive web interface:
-```bash
-uv run streamlit run streamlit_app.py
-```
-
----
-
-## 🏗️ Project Architecture & Code Structure
-
-To understand how everything fits together under the hood, here is a detailed breakdown of the codebase and its components:
-
-### 1. The Core Application (`main.py`)
-This is the heart of the backend logic. It contains the **FastAPI application** and defines the **Inngest Workflow Functions**:
-* **`rag_ingest_pdf`:** The background function that handles PDF ingestion. It breaks the job down into two reliable steps: `_load` (to chunk the text) and `_upsert` (to turn text into vectors and save to database).
-* **`rag_query_pdf_ai`:** The background function that handles user questions. It consists of `_search` (finding relevant context in Qdrant) and `inngest.experimental.ai.infer` (using OpenAI to generate the final answer).
-
-### 2. The Document Processor (`Data_loader.py`)
-This file handles extracting and transforming raw data into AI-readable formats.
-* **`PDFReader`:** Leverages LlamaIndex to extract readable text strictly from PDF files.
-* **`SentenceSplitter`:** Slices massive blocks of text into overlapping `1000`-character chunks. Overlapping prevents sentences from being cut off mid-thought.
-* **`embed_texts`:** Uses the OpenAI API to convert physical text chunks into an array of floating-point numbers (Vectors). 
-
-### 3. The Vector Database Client (`vector_db.py`)
-This is the bridge to our Qdrant docker container.
-* **`QdrantStorage`:** A custom python class that initializes a connection to Qdrant on port `6333`.
-* **`upsert`:** Takes our vector embeddings and pushes them securely into the `docs` collection in the local database.
-* **`search`:** Takes a user's question (converted to a vector) and uses *Cosine Similarity* to fetch the top `K` chunks of text that mathematically match the meaning of the question the closest.
-
-### 4. Custom Data Modeling (`custom_type.py`)
-This file leverages Pydantic to ensure strict structure for our data passing through the pipeline. It explicitly defines structures like `RAGChunkAndSrc` or `RAGSearchResult` to prevent variable mix-ups.
-
-### 5. The User Interface (`streamlit_app.py`)
-The frontend application facing the user.
-* Evaluates file uploads and saves them into a temporary `/uploads` directory.
-* Uses polling to continuously check the Inngest Dev Server API waiting for the AI task to finish generating its response.
-* Renders the final textual answer alongside the relevant context chunks.
-
-
-
+Manual settlement reconciliation is slow and error-prone at scale. This agent
+gives a merchant (or their finance team) an instant, auditable answer to
+"where's my money and why" — with every decision traceable to a reason,
+not a black box.
